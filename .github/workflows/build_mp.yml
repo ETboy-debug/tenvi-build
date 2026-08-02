@@ -86,6 +86,16 @@ jobs:
       - name: Build AutoResponse (client inject dll)
         shell: cmd
         run: msbuild src\AutoResponse\AutoResponse.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
+      - name: Build EmuMainTenvi (bypass patches)
+        shell: cmd
+        run: msbuild src\EmuMainTenvi\EmuMainTenvi.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
+      - name: Build EmuLoaderTenvi (loader dll)
+        shell: cmd
+        run: msbuild src\EmuLoaderTenvi\EmuLoaderTenvi.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
+      - name: Build PacketTenvi (packet logger)
+        shell: cmd
+        continue-on-error: true
+        run: msbuild src\PacketTenvi\PacketTenvi.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
       - name: Build RunEmuTenvi (injector)
         shell: cmd
         run: msbuild src\RunEmuTenvi\RunEmuTenvi.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
@@ -96,9 +106,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory dist -Force | Out-Null
-          Get-ChildItem -Path src -Recurse -Include AutoResponse.dll | ForEach-Object { Copy-Item $_.FullName -Destination dist\AutoResponse.dll -Force }
-          Get-ChildItem -Path src -Recurse -Include RunEmuTenvi.exe | ForEach-Object { Copy-Item $_.FullName -Destination dist\RunEmuTenvi.exe -Force }
-          Get-ChildItem -Path src -Recurse -Include StandaloneServer.exe | ForEach-Object { Copy-Item $_.FullName -Destination dist\StandaloneServer.exe -Force }
+          foreach ($f in @('AutoResponse.dll','EmuMainTenvi.dll','EmuLoaderTenvi.dll','PacketTenvi.dll','RunEmuTenvi.exe','StandaloneServer.exe')) {
+            $hit = Get-ChildItem -Path src -Recurse -Filter $f -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\Release\\' } | Select-Object -First 1
+            if ($hit) { Copy-Item $hit.FullName -Destination (Join-Path 'dist' $f) -Force } else { Write-Host "MISS: $f" }
+          }
           if (Test-Path src\RunEmuTenvi.ini) { Copy-Item src\RunEmuTenvi.ini -Destination dist\RunEmuTenvi.ini -Force }
           if (Test-Path src\RunEmuTenvi_CN.ini) { Copy-Item src\RunEmuTenvi_CN.ini -Destination dist\RunEmuTenvi_CN.ini -Force }
           if (Test-Path tv_xml\CN) { New-Item -ItemType Directory dist\tv_xml -Force | Out-Null; Copy-Item -Recurse -Force tv_xml\CN dist\tv_xml\CN }

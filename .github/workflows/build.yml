@@ -1,0 +1,57 @@
+name: Build TenviTest Emulator
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout TenviTest
+        uses: actions/checkout@v4
+        with:
+          repository: JinkelaP/TenviTest
+          path: TenviTest
+      - name: Checkout Riremito/tools
+        uses: actions/checkout@v4
+        with:
+          repository: Riremito/tools
+          path: tools
+      - name: Checkout Riremito/tv_xml
+        uses: actions/checkout@v4
+        with:
+          repository: Riremito/tv_xml
+          path: tv_xml
+      - name: Copy Share libs (mirror GetLib.bat)
+        shell: cmd
+        run: |
+          if not exist TenviTest\Share\Simple mkdir TenviTest\Share\Simple
+          if not exist TenviTest\Share\Hook mkdir TenviTest\Share\Hook
+          xcopy /Y tools\Share\Simple\*.* TenviTest\Share\Simple\
+          xcopy /Y tools\Share\Hook\*.* TenviTest\Share\Hook\
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+      - name: Build (retarget v143 / Win32)
+        shell: cmd
+        run: |
+          msbuild TenviTest\TenviTest.sln /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0.22621.0 /m
+      - name: Collect outputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist -Force
+          Get-ChildItem -Path TenviTest -Recurse -Include *.exe,*.dll | ForEach-Object { Copy-Item $_.FullName -Destination dist\ -Force }
+          Copy-Item TenviTest\RunEmuTenvi_CN.ini -Destination dist\RunEmuTenvi.ini -Force
+          Copy-Item TenviTest\RunEmuTenvi.ini -Destination dist\RunEmuTenvi.ini.orig -Force
+          if (Test-Path tv_xml\CN) { Copy-Item -Recurse -Force tv_xml\CN dist\tv_xml\CN }
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\* -DestinationPath tenvi-emu.zip -Force
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: emu-latest
+          files: tenvi-emu.zip
+          overwrite: true
+          body: "TenviTest prebuilt emulator (VS2022 v143, Win32, Region=CN). Drop Tenvi.exe onto RunEmuTenvi.exe to play."

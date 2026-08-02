@@ -27,10 +27,12 @@ jobs:
       - name: Copy Share libs into source
         shell: cmd
         run: |
-          if not exist src\AutoResponse\Share\Simple mkdir src\AutoResponse\Share\Simple
-          if not exist src\AutoResponse\Share\Hook mkdir src\AutoResponse\Share\Hook
-          xcopy /Y tools\Simple\*.* src\AutoResponse\Share\Simple\
-          xcopy /Y tools\Hook\*.* src\AutoResponse\Share\Hook\
+          if not exist src\Share\Simple mkdir src\Share\Simple
+          if not exist src\Share\Hook mkdir src\Share\Hook
+          xcopy /Y tools\Simple\*.* src\Share\Simple\
+          xcopy /Y tools\Hook\*.* src\Share\Hook\
+          dir src\Share\Simple
+          dir src\Share\Hook
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
       - name: Detect SDK and Toolset
@@ -73,12 +75,18 @@ jobs:
           "TOOLSET=$ts" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Build AutoResponse (client inject dll)
         shell: cmd
+        env:
+          CL: /source-charset:.932
         run: msbuild src\AutoResponse\AutoResponse.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
       - name: Build RunEmuTenvi (injector)
         shell: cmd
+        env:
+          CL: /source-charset:.932
         run: msbuild src\RunEmuTenvi\RunEmuTenvi.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
       - name: Build StandaloneServer
         shell: cmd
+        env:
+          CL: /source-charset:.932
         run: msbuild src\StandaloneServer\StandaloneServer.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
       - name: Collect outputs
         shell: pwsh

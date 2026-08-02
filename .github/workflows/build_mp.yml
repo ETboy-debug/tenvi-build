@@ -1,0 +1,90 @@
+name: Build TenviTest MP
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout tenvi-mp (modified source)
+        uses: actions/checkout@v4
+        with:
+          repository: ETboy-debug/tenvi-mp
+          path: src
+      - name: Checkout Riremito/tools (Share libs)
+        uses: actions/checkout@v4
+        with:
+          repository: Riremito/tools
+          path: tools
+      - name: Checkout Riremito/tv_xml (game data)
+        uses: actions/checkout@v4
+        with:
+          repository: Riremito/tv_xml
+          path: tv_xml
+      - name: Copy Share libs into source
+        shell: cmd
+        run: |
+          if not exist src\AutoResponse\Share\Simple mkdir src\AutoResponse\Share\Simple
+          if not exist src\AutoResponse\Share\Hook mkdir src\AutoResponse\Share\Hook
+          xcopy /Y tools\Simple\*.* src\AutoResponse\Share\Simple\
+          xcopy /Y tools\Hook\*.* src\AutoResponse\Share\Hook\
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+      - name: Detect SDK and Toolset
+        shell: pwsh
+        run: |
+          $incRoot = "C:\Program Files (x86)\Windows Kits\10\Include"
+          $sdks = @(Get-ChildItem $incRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^10\.' } | Sort-Object Name)
+          Write-Host "Available SDKs: $($sdks.Name -join ', ')"
+          if ($sdks.Count -eq 0) { throw "no windows sdk found" }
+          $sdk = $sdks[-1].Name
+
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsRoot = & $vswhere -latest -property installationPath
+          Write-Host "VS root: $vsRoot"
+          $vcTargets = Join-Path $vsRoot "MSBuild\Microsoft\VC"
+          $tsAll = @(Get-ChildItem $vcTargets -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^v\d+$' } | Select-Object -ExpandProperty Name)
+          Write-Host "Toolset target dirs: $($tsAll -join ', ')"
+          $msvcDir = Join-Path $vsRoot "VC\Tools\MSVC"
+          $msvc = @(Get-ChildItem $msvcDir -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+          Write-Host "MSVC versions: $($msvc -join ', ')"
+
+          if ($tsAll -contains 'v143') { $ts = 'v143' }
+          elseif ($tsAll.Count -gt 0) { $ts = ($tsAll | Sort-Object { [int]($_ -replace 'v','') })[-1] }
+          else { throw "no platform toolset found" }
+
+          Write-Host "USING SDK=$sdk TOOLSET=$ts"
+          "SDKVER=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TOOLSET=$ts" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build AutoResponse (client inject dll)
+        shell: cmd
+        run: msbuild src\AutoResponse\AutoResponse.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
+      - name: Build RunEmuTenvi (injector)
+        shell: cmd
+        run: msbuild src\RunEmuTenvi\RunEmuTenvi.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
+      - name: Build StandaloneServer
+        shell: cmd
+        run: msbuild src\StandaloneServer\StandaloneServer.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
+      - name: Collect outputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist -Force
+          Get-ChildItem -Path src\AutoResponse -Recurse -Include AutoResponse.dll | ForEach-Object { Copy-Item $_.FullName -Destination dist\AutoResponse.dll -Force }
+          Get-ChildItem -Path src\RunEmuTenvi -Recurse -Include RunEmuTenvi.exe | ForEach-Object { Copy-Item $_.FullName -Destination dist\RunEmuTenvi.exe -Force }
+          Get-ChildItem -Path src\StandaloneServer -Recurse -Include StandaloneServer.exe | ForEach-Object { Copy-Item $_.FullName -Destination dist\StandaloneServer.exe -Force }
+          if (Test-Path src\RunEmuTenvi.ini) { Copy-Item src\RunEmuTenvi.ini -Destination dist\RunEmuTenvi.ini -Force }
+          if (Test-Path src\RunEmuTenvi_CN.ini) { Copy-Item src\RunEmuTenvi_CN.ini -Destination dist\RunEmuTenvi_CN.ini -Force }
+          if (Test-Path tv_xml\CN) { Copy-Item -Recurse -Force tv_xml\CN dist\tv_xml\CN }
+          Get-ChildItem dist -Recurse | Select-Object FullName | Format-Table -AutoSize
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\* -DestinationPath tenvi-mp.zip -Force
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mp-latest
+          files: tenvi-mp.zip
+          body: "TenviTest MP milestone1: client dll (ConnectCaller real-connect) + standalone server StandaloneServer.exe. Run StandaloneServer.exe first (port 8787), then inject client."

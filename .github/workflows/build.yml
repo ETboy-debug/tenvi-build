@@ -29,8 +29,8 @@ jobs:
         run: |
           if not exist src\AutoResponse\Share\Simple mkdir src\AutoResponse\Share\Simple
           if not exist src\AutoResponse\Share\Hook mkdir src\AutoResponse\Share\Hook
-          xcopy /Y tools\Share\Simple\*.* src\AutoResponse\Share\Simple\
-          xcopy /Y tools\Share\Hook\*.* src\AutoResponse\Share\Hook\
+          xcopy /Y tools\Simple\*.* src\AutoResponse\Share\Simple\
+          xcopy /Y tools\Hook\*.* src\AutoResponse\Share\Hook\
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
       - name: Build AutoResponse (client inject dll)

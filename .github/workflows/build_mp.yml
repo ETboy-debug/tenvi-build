@@ -8,6 +8,8 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      CL: /source-charset:.932
     steps:
       - name: Checkout tenvi-mp (modified source)
         uses: actions/checkout@v4
@@ -24,15 +26,6 @@ jobs:
         with:
           repository: Riremito/tv_xml
           path: tv_xml
-      - name: Copy Share libs into source
-        shell: cmd
-        run: |
-          if not exist src\Share\Simple mkdir src\Share\Simple
-          if not exist src\Share\Hook mkdir src\Share\Hook
-          xcopy /Y tools\Simple\*.* src\Share\Simple\
-          xcopy /Y tools\Hook\*.* src\Share\Hook\
-          dir src\Share\Simple
-          dir src\Share\Hook
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
       - name: Detect SDK and Toolset
@@ -46,59 +39,70 @@ jobs:
 
           $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsRoot = & $vswhere -latest -property installationPath
-          Write-Host "VS root: $vsRoot"
-          $msvcDir = Join-Path $vsRoot "VC\Tools\MSVC"
-          $msvc = @(Get-ChildItem $msvcDir -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-          Write-Host "MSVC versions: $($msvc -join ', ')"
-
           $vcTargets = Join-Path $vsRoot "MSBuild\Microsoft\VC"
           $ptRoots = @(Get-ChildItem -Path $vcTargets -Recurse -Directory -Filter "PlatformToolsets" -ErrorAction SilentlyContinue)
           $tsAll = @()
           foreach ($r in $ptRoots) {
-            Write-Host "PT root: $($r.FullName)"
-            $names = @(Get-ChildItem $r.FullName -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-            Write-Host "   -> $($names -join ', ')"
-            if ($r.FullName -match '\\Win32\\') { $tsAll += $names }
+            if ($r.FullName -match '\\Win32\\' -and $r.FullName -notmatch 'Application Type') {
+              $tsAll += @(Get-ChildItem $r.FullName -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+            }
           }
           $tsAll = @($tsAll | Where-Object { $_ -match '^v\d{3}$' } | Sort-Object -Unique)
           Write-Host "Win32 platform toolsets: $($tsAll -join ', ')"
-
           $ts = $null
-          foreach ($c in @('v143','v142','v145','v144','v141','v140')) {
-            if ($tsAll -contains $c) { $ts = $c; break }
-          }
-          if (-not $ts -and $tsAll.Count -gt 0) { $ts = ($tsAll | Sort-Object { [int]($_ -replace 'v','') })[-1] }
-          if (-not $ts) { $ts = 'v143' ; Write-Host "WARN: fallback to v143" }
+          foreach ($c in @('v143','v142','v145','v144','v141','v140')) { if ($tsAll -contains $c) { $ts = $c; break } }
+          if (-not $ts -and $tsAll.Count -gt 0) { $ts = $tsAll[-1] }
+          if (-not $ts) { $ts = 'v143' }
 
           Write-Host "USING SDK=$sdk TOOLSET=$ts"
           "SDKVER=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TOOLSET=$ts" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build Simple lib
+        shell: cmd
+        run: msbuild tools\Simple\Simple.sln /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
+      - name: Build Hook lib
+        shell: cmd
+        run: msbuild tools\Hook\Hook.sln /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
+      - name: Prepare Share libs into source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src\Share\Simple | Out-Null
+          New-Item -ItemType Directory -Force src\Share\Hook | Out-Null
+          # headers (shared between 32/64 projects)
+          Copy-Item tools\Simple\Simple64\*.h src\Share\Simple\ -Force -ErrorAction SilentlyContinue
+          Copy-Item tools\Hook\Hook64\*.h src\Share\Hook\ -Force -ErrorAction SilentlyContinue
+          # whatever the build events already produced
+          if (Test-Path tools\Simple\Share\Simple) { Copy-Item tools\Simple\Share\Simple\* src\Share\Simple\ -Force -Recurse }
+          if (Test-Path tools\Hook\Share\Hook) { Copy-Item tools\Hook\Share\Hook\* src\Share\Hook\ -Force -Recurse }
+          # 32-bit static libs
+          $sl = Get-ChildItem tools\Simple -Recurse -Filter Simple.lib -ErrorAction SilentlyContinue | Select-Object -First 1
+          $hl = Get-ChildItem tools\Hook -Recurse -Filter Hook.lib -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($sl) { Copy-Item $sl.FullName src\Share\Simple\Simple.lib -Force } else { Write-Host "WARN: Simple.lib not found" }
+          if ($hl) { Copy-Item $hl.FullName src\Share\Hook\Hook.lib -Force } else { Write-Host "WARN: Hook.lib not found" }
+          Write-Host "--- src\Share\Simple ---"
+          Get-ChildItem src\Share\Simple | Select-Object Name, Length | Format-Table -AutoSize
+          Write-Host "--- src\Share\Hook ---"
+          Get-ChildItem src\Share\Hook | Select-Object Name, Length | Format-Table -AutoSize
       - name: Build AutoResponse (client inject dll)
         shell: cmd
-        env:
-          CL: /source-charset:.932
         run: msbuild src\AutoResponse\AutoResponse.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
       - name: Build RunEmuTenvi (injector)
         shell: cmd
-        env:
-          CL: /source-charset:.932
         run: msbuild src\RunEmuTenvi\RunEmuTenvi.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
       - name: Build StandaloneServer
         shell: cmd
-        env:
-          CL: /source-charset:.932
         run: msbuild src\StandaloneServer\StandaloneServer.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /p:WindowsTargetPlatformVersion=%SDKVER% /p:SDLCheck=false /p:TreatWarningAsError=false /p:ConformanceMode=false /m
       - name: Collect outputs
         shell: pwsh
         run: |
-          New-Item -ItemType Directory dist -Force
-          Get-ChildItem -Path src\AutoResponse -Recurse -Include AutoResponse.dll | ForEach-Object { Copy-Item $_.FullName -Destination dist\AutoResponse.dll -Force }
-          Get-ChildItem -Path src\RunEmuTenvi -Recurse -Include RunEmuTenvi.exe | ForEach-Object { Copy-Item $_.FullName -Destination dist\RunEmuTenvi.exe -Force }
-          Get-ChildItem -Path src\StandaloneServer -Recurse -Include StandaloneServer.exe | ForEach-Object { Copy-Item $_.FullName -Destination dist\StandaloneServer.exe -Force }
+          New-Item -ItemType Directory dist -Force | Out-Null
+          Get-ChildItem -Path src -Recurse -Include AutoResponse.dll | ForEach-Object { Copy-Item $_.FullName -Destination dist\AutoResponse.dll -Force }
+          Get-ChildItem -Path src -Recurse -Include RunEmuTenvi.exe | ForEach-Object { Copy-Item $_.FullName -Destination dist\RunEmuTenvi.exe -Force }
+          Get-ChildItem -Path src -Recurse -Include StandaloneServer.exe | ForEach-Object { Copy-Item $_.FullName -Destination dist\StandaloneServer.exe -Force }
           if (Test-Path src\RunEmuTenvi.ini) { Copy-Item src\RunEmuTenvi.ini -Destination dist\RunEmuTenvi.ini -Force }
           if (Test-Path src\RunEmuTenvi_CN.ini) { Copy-Item src\RunEmuTenvi_CN.ini -Destination dist\RunEmuTenvi_CN.ini -Force }
-          if (Test-Path tv_xml\CN) { Copy-Item -Recurse -Force tv_xml\CN dist\tv_xml\CN }
-          Get-ChildItem dist -Recurse | Select-Object FullName | Format-Table -AutoSize
+          if (Test-Path tv_xml\CN) { New-Item -ItemType Directory dist\tv_xml -Force | Out-Null; Copy-Item -Recurse -Force tv_xml\CN dist\tv_xml\CN }
+          Get-ChildItem dist | Select-Object Name, Length | Format-Table -AutoSize
       - name: Zip
         shell: pwsh
         run: Compress-Archive -Path dist\* -DestinationPath tenvi-mp.zip -Force
@@ -107,4 +111,4 @@ jobs:
         with:
           tag_name: mp-latest
           files: tenvi-mp.zip
-          body: "TenviTest MP milestone1: client dll (ConnectCaller real-connect) + standalone server StandaloneServer.exe. Run StandaloneServer.exe first (port 8787), then inject client."
+          body: "TenviTest MP milestone1: client dll (real connect) + StandaloneServer.exe (port 8787). Start StandaloneServer.exe first, then inject the client."

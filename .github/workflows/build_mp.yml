@@ -45,14 +45,16 @@ jobs:
           $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsRoot = & $vswhere -latest -property installationPath
           Write-Host "VS root: $vsRoot"
-          $vcTargets = Join-Path $vsRoot "MSBuild\Microsoft\VC"
-          $tsAll = @(Get-ChildItem $vcTargets -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^v\d+$' } | Select-Object -ExpandProperty Name)
-          Write-Host "Toolset target dirs: $($tsAll -join ', ')"
           $msvcDir = Join-Path $vsRoot "VC\Tools\MSVC"
           $msvc = @(Get-ChildItem $msvcDir -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
           Write-Host "MSVC versions: $($msvc -join ', ')"
 
+          $vcTargets = Join-Path $vsRoot "MSBuild\Microsoft\VC"
+          $tsAll = @(Get-ChildItem -Path (Join-Path $vcTargets "*\Platforms\Win32\PlatformToolsets") -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name | Where-Object { $_ -match '^v\d{3}$' } | Sort-Object -Unique)
+          Write-Host "Real platform toolsets: $($tsAll -join ', ')"
+
           if ($tsAll -contains 'v143') { $ts = 'v143' }
+          elseif ($tsAll -contains 'v142') { $ts = 'v142' }
           elseif ($tsAll.Count -gt 0) { $ts = ($tsAll | Sort-Object { [int]($_ -replace 'v','') })[-1] }
           else { throw "no platform toolset found" }
 

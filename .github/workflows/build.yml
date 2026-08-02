@@ -29,8 +29,8 @@ jobs:
         run: |
           if not exist TenviTest\Share\Simple mkdir TenviTest\Share\Simple
           if not exist TenviTest\Share\Hook mkdir TenviTest\Share\Hook
-          xcopy /Y tools\Share\Simple\*.* TenviTest\Share\Simple\
-          xcopy /Y tools\Share\Hook\*.* TenviTest\Share\Hook\
+          xcopy /E /Y /I tools\Simple\*.* TenviTest\Share\Simple\
+          xcopy /E /Y /I tools\Hook\*.* TenviTest\Share\Hook\
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
       - name: Build (retarget v143 / Win32)
@@ -43,8 +43,7 @@ jobs:
           New-Item -ItemType Directory dist -Force
           Get-ChildItem -Path TenviTest -Recurse -Include *.exe,*.dll | ForEach-Object { Copy-Item $_.FullName -Destination dist\ -Force }
           Copy-Item TenviTest\RunEmuTenvi_CN.ini -Destination dist\RunEmuTenvi.ini -Force
-          Copy-Item TenviTest\RunEmuTenvi.ini -Destination dist\RunEmuTenvi.ini.orig -Force
-          if (Test-Path tv_xml\CN) { Copy-Item -Recurse -Force tv_xml\CN dist\tv_xml\CN }
+          if (Test-Path tv_xml\CN) { New-Item -ItemType Directory -Force dist\tv_xml\CN; Copy-Item -Recurse -Force tv_xml\CN\* dist\tv_xml\CN\ }
       - name: Zip
         shell: pwsh
         run: Compress-Archive -Path dist\* -DestinationPath tenvi-emu.zip -Force
